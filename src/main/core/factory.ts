@@ -54,6 +54,20 @@ export async function generateProfile(): Promise<void> {
 
   const profile = deepMerge(JSON.parse(JSON.stringify(currentProfile)), configToMerge)
 
+  // Base mihomo.yaml replaces dns.fake-ip-filter as an array, but often omits
+  // fake-ip-filter-mode. Leaving a subscription's mode (e.g. rule) with the
+  // base blacklist-style filter (often including "*") is rejected by mihomo.
+  if (
+    controlDns &&
+    configToMerge.dns &&
+    Object.prototype.hasOwnProperty.call(configToMerge.dns, 'fake-ip-filter') &&
+    !Object.prototype.hasOwnProperty.call(configToMerge.dns, 'fake-ip-filter-mode') &&
+    profile.dns &&
+    Object.prototype.hasOwnProperty.call(profile.dns, 'fake-ip-filter-mode')
+  ) {
+    delete profile.dns['fake-ip-filter-mode']
+  }
+
   await cleanProfile(profile, controlDns, controlSniff)
 
   runtimeConfig = profile
@@ -259,6 +273,18 @@ function cleanDnsConfig(profile: MihomoConfig, controlDns: boolean): void {
 
   delete dnsConfig.fallback
   delete dnsConfig['fallback-filter']
+
+  // Safety net: rule/whitelist mode is incompatible with blacklist-style filters
+  // that include a bare "*". Prefer dropping the mode so mihomo can start.
+  const filterMode = dnsConfig['fake-ip-filter-mode']
+  const fakeIpFilter = dnsConfig['fake-ip-filter']
+  if (
+    (filterMode === 'rule' || filterMode === 'whitelist') &&
+    Array.isArray(fakeIpFilter) &&
+    fakeIpFilter.includes('*')
+  ) {
+    delete dnsConfig['fake-ip-filter-mode']
+  }
 }
 
 function cleanSnifferConfig(profile: MihomoConfig, controlSniff: boolean): void {
